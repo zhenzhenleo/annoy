@@ -179,12 +179,12 @@ inline float manhattan_distance<float>(const float* x, const float* y, int f) {
 
 #endif
 
- 
+ // 获得模值
 template<typename T>
 inline T get_norm(T* v, int f) {
   return sqrt(dot(v, v, f));
 }
-
+// 将向量标准化/归一化
 template<typename T>
 inline void normalize(T* v, int f) {
   T norm = get_norm(v, f);
@@ -193,7 +193,7 @@ inline void normalize(T* v, int f) {
       v[z] /= norm;
   }
 }
-
+// 对于当前空间内的点，（随机+迭代）选取两个中心点，进而选择以其中点作为切分超平面法向量进行切分
 template<typename T, typename Random, typename Distance, typename Node>
 inline void two_means(const vector<Node*>& nodes, int f, Random& random, bool cosine, Node* p, Node* q) {
   /*
@@ -203,8 +203,8 @@ inline void two_means(const vector<Node*>& nodes, int f, Random& random, bool co
     assigned to it, so to balance it. 
   */
   static int iteration_steps = 200;
-  size_t count = nodes.size();
-
+  size_t count = nodes.size();	// 节点个数
+  // 随机选择两个点作为中心点
   size_t i = random.index(count);
   size_t j = random.index(count-1);
   j += (j >= i); // ensure that i != j
@@ -216,8 +216,8 @@ inline void two_means(const vector<Node*>& nodes, int f, Random& random, bool co
 
   int ic = 1, jc = 1;
   for (int l = 0; l < iteration_steps; l++) {
-    size_t k = random.index(count);
-    T di = ic * Distance::distance(p, nodes[k], f),
+    size_t k = random.index(count);	// 随机选择一个点，计算其与两个中心点的距离
+    T di = ic * Distance::distance(p, nodes[k], f),	// 引入ic，jc作为权重，以平衡树的左右子树
       dj = jc * Distance::distance(q, nodes[k], f);
     T norm = cosine ? get_norm(nodes[k]->v, f) : 1.0;
     if (!(norm > T(0))) {
@@ -225,9 +225,9 @@ inline void two_means(const vector<Node*>& nodes, int f, Random& random, bool co
     }
     if (di < dj) {
       for (int z = 0; z < f; z++)
-	p->v[z] = (p->v[z] * ic + nodes[k]->v[z] / norm) / (ic + 1);
+	p->v[z] = (p->v[z] * ic + nodes[k]->v[z] / norm) / (ic + 1);	// 更新中心点
       Distance::init_node(p, f);
-      ic++;
+      ic++;	// 更新权重
     } else if (dj < di) {
       for (int z = 0; z < f; z++)
 	q->v[z] = (q->v[z] * jc + nodes[k]->v[z] / norm) / (jc + 1);
@@ -407,17 +407,17 @@ struct Hamming {
     return "hamming";
   }
 };
-
+// 闵可夫斯基距离
 struct Minkowski {
   template<typename S, typename T>
   struct ANNOY_NODE_ATTRIBUTE Node {
-    S n_descendants;
+    S n_descendants;	// 用于表示子孙节点个数
     T a; // need an extra constant term to determine the offset of the plane
     union {
-      S children[2];
-      T norm;
+      S children[2];	// 存储左右子树对应的节点索引
+      T norm;		// 当前节点向量的未标准化的模值平方
     };
-    T v[1];
+    T v[1];		// 当前向量（标准化）
   };
   template<typename S, typename T>
   static inline T margin(const Node<S, T>* n, const T* y, int f) {
@@ -443,7 +443,7 @@ struct Minkowski {
   }
 };
 
-
+// 欧氏距离
 struct Euclidean : Minkowski{
   template<typename S, typename T>
   static inline T distance(const Node<S, T>* x, const Node<S, T>* y, int f) {
@@ -452,9 +452,10 @@ struct Euclidean : Minkowski{
     T pq = dot(x->v, y->v, f);
     return pp + qq - 2*pq;
   }
+	// 切分超平面（计算切分节点的v和a属性并返回该切分节点）
   template<typename S, typename T, typename Random>
   static inline void create_split(const vector<Node<S, T>*>& nodes, int f, size_t s, Random& random, Node<S, T>* n) {
-    Node<S, T>* p = (Node<S, T>*)malloc(s); // TODO: avoid
+    Node<S, T>* p = (Node<S, T>*)malloc(s); // TODO: avoid  s为一个节点占据的空间大小
     Node<S, T>* q = (Node<S, T>*)malloc(s); // TODO: avoid
     two_means<T, Random, Euclidean, Node<S, T> >(nodes, f, random, false, p, q);
 
@@ -467,10 +468,12 @@ struct Euclidean : Minkowski{
     free(p);
     free(q);
   }
+	// 距离归一化
   template<typename T>
   static inline T normalized_distance(T distance) {
     return sqrt(std::max(distance, T(0)));
   }
+	// 初始化节点(计算节点的norm属性--模值平方)
   template<typename S, typename T>
   static inline void init_node(Node<S, T>* n, int f) {
     n->norm = dot(n->v, n->v, f);
@@ -511,7 +514,7 @@ struct Manhattan : Minkowski{
     return "manhattan";
   }
 };
-
+// annoy接口基类
 template<typename S, typename T>
 class AnnoyIndexInterface {
  public:
@@ -531,7 +534,7 @@ class AnnoyIndexInterface {
   virtual void set_seed(int q) = 0;
 };
 
-template<typename S, typename T, typename Distance, typename Random>
+template<typename S, typename T, typename Distance, typename Random>	// Distance为某个距离类
   class AnnoyIndex : public AnnoyIndexInterface<S, T> {
   /*
    * We use random projection to build a forest of binary trees of all items.
@@ -542,24 +545,26 @@ template<typename S, typename T, typename Distance, typename Random>
    */
 public:
   typedef Distance D;
-  typedef typename D::template Node<S, T> Node;
+  typedef typename D::template Node<S, T> Node;		// 节点类别与距离类关联
 
 protected:
-  const int _f;
-  size_t _s;
-  S _n_items;
+  const int _f;	// 向量维度
+  size_t _s;		// 单个节点占据的空间大小
+  S _n_items;		// item数
   Random _random;
   void* _nodes; // Could either be mmapped, or point to a memory buffer that we reallocate
-  S _n_nodes;
-  S _nodes_size;
-  vector<S> _roots;
-  S _K;
+  S _n_nodes;		// 节点数
+  S _nodes_size;	// 分配的空间能容纳的节点数（可能比实际的个数要多，用于分配空间_allocate_size函数，会预先多分配一些空间以避免频繁分配）
+  vector<S> _roots;	// 所有根节点对应的节点索引（在原先的点索引集合后增量添加）
+  S _K;					// 切分所需的最小节点数（也是节点能包含的最大descendants数）
   bool _loaded;
   bool _verbose;
   int _fd;
 public:
 
   AnnoyIndex(int f) : _f(f), _random() {
+		// 对于欧氏距离的节点，正常的节点结构是n_descedants,a,children,norm,v;
+		// 但对于叶节点，其结构是n_descedants,a,children，其中children存储了_K个节点索引。由于每个节点的内存大小相等，所以_K无法手动指定
     _s = offsetof(Node, v) + f * sizeof(T); // Size of each node
     _verbose = false;
     _K = (_s - offsetof(Node, children)) / sizeof(S); // Max number of descendants to fit into node
@@ -572,17 +577,17 @@ public:
   int get_f() const {
     return _f;
   }
-
+	// 添加节点（item是已有节点数,w是点的向量）
   void add_item(S item, const T* w) {
     add_item_impl(item, w);
   }
 
   template<typename W>
   void add_item_impl(S item, const W& w) {
-    _allocate_size(item + 1);
+    _allocate_size(item + 1);	// 在_nodes后分配新空间用于存储新节点
     Node* n = _get(item);
-
-    n->children[0] = 0;
+		// 初始化，children的左右子树索引均设为0，n_descedants设为1，并用w初始化v
+    n->children[0] = 0;	
     n->children[1] = 0;
     n->n_descendants = 1;
 
@@ -593,14 +598,14 @@ public:
     if (item >= _n_items)
       _n_items = item + 1;
   }
-
+	// 建树，q指定树的个数
   void build(int q) {
     if (_loaded) {
       // TODO: throw exception
       showUpdate("You can't build a loaded index\n");
       return;
     }
-    _n_nodes = _n_items;
+    _n_nodes = _n_items;	// 初始节点个数等于点数
     while (1) {
       if (q == -1 && _n_nodes >= _n_items * 2)
         break;
@@ -611,16 +616,16 @@ public:
       vector<S> indices;
       for (S i = 0; i < _n_items; i++) {
 	if (_get(i)->n_descendants >= 1) // Issue #223
-          indices.push_back(i);
+          indices.push_back(i);		// 将所有点加入索引集合
       }
 
-      _roots.push_back(_make_tree(indices, true));
+      _roots.push_back(_make_tree(indices, true));	// 将树的根节点索引加入根节点集合
     }
-    // Also, copy the roots into the last segment of the array
+    // Also, copy the roots into the last segment of the array将根节点再次添加到节点集合
     // This way we can load them faster without reading the whole file
     _allocate_size(_n_nodes + (S)_roots.size());
     for (size_t i = 0; i < _roots.size(); i++)
-      memcpy(_get(_n_nodes + (S)i), _get(_roots[i]), _s);
+      memcpy(_get(_n_nodes + (S)i), _get(_roots[i]), _s);		// 将根节点加入节点集合
     _n_nodes += _roots.size();
 
     if (_verbose) showUpdate("has %d nodes\n", _n_nodes);
@@ -679,7 +684,7 @@ public:
       return false;
     }
     off_t size = lseek(_fd, 0, SEEK_END);
-#ifdef MAP_POPULATE
+#ifdef MAP_POPULATE			// 加载存储的节点
     _nodes = (Node*)mmap(
         0, size, PROT_READ, MAP_SHARED | MAP_POPULATE, _fd, 0);
 #else
@@ -709,16 +714,16 @@ public:
     if (_verbose) showUpdate("found %lu roots with degree %d\n", _roots.size(), m);
     return true;
   }
-
+	// 计算两个点之间的距离（标准化）
   T get_distance(S i, S j) {
     return D::normalized_distance(D::distance(_get(i), _get(j), _f));
   }
-
+	// 以索引形式获取最近邻
   void get_nns_by_item(S item, size_t n, size_t search_k, vector<S>* result, vector<T>* distances) {
     const Node* m = _get(item);
     _get_all_nns(m->v, n, search_k, result, distances);
   }
-
+	// 以向量形式获取最近邻
   void get_nns_by_vector(const T* w, size_t n, size_t search_k, vector<S>* result, vector<T>* distances) {
     _get_all_nns(w, n, search_k, result, distances);
   }
@@ -728,7 +733,7 @@ public:
   void verbose(bool v) {
     _verbose = v;
   }
-
+	// 获取某个索引对应的向量
   void get_item(S item, T* v) {
     Node* m = _get(item);
     memcpy(v, m->v, _f * sizeof(T));
@@ -739,22 +744,23 @@ public:
   }
 
 protected:
+	// 分配内存，n指定节点数目（在已有的内存空间后拓展新空间；当指定的节点数大于当前分配的空间能容纳的节点数时，默认以1.3倍进行开辟）
   void _allocate_size(S n) {
     if (n > _nodes_size) {
       const double reallocation_factor = 1.3;
       S new_nodes_size = std::max(n,
-				  (S)((_nodes_size + 1) * reallocation_factor));
+				  (S)((_nodes_size + 1) * reallocation_factor));	// 新的内存大小取n和当前_nodes_size1.3倍的较大值
       if (_verbose) showUpdate("Reallocating to %d nodes\n", new_nodes_size);
-      _nodes = realloc(_nodes, _s * new_nodes_size);
-      memset((char *)_nodes + (_nodes_size * _s)/sizeof(char), 0, (new_nodes_size - _nodes_size) * _s);
-      _nodes_size = new_nodes_size;
+      _nodes = realloc(_nodes, _s * new_nodes_size);	// 重新分配内存给_nodes（由原来的_nodes_size*_s变为new_nodes_size*_s）
+      memset((char *)_nodes + (_nodes_size * _s)/sizeof(char), 0, (new_nodes_size - _nodes_size) * _s);	// 将新分配的内存空间上填充0
+      _nodes_size = new_nodes_size;	// 更新_nodes_size
     }
   }
 
   inline Node* _get(S i) {
-    return (Node*)((uint8_t *)_nodes + (_s * i));
+    return (Node*)((uint8_t *)_nodes + (_s * i));	// 从点集合中获取指定的点
   }
-
+	// 构造树
   S _make_tree(const vector<S >& indices, bool is_root) {
     // The basic rule is that if we have <= _K items, then it's a leaf node, otherwise it's a split node.
     // There's some regrettable complications caused by the problem that root nodes have to be "special":
@@ -764,7 +770,7 @@ protected:
     if (indices.size() == 1 && !is_root)
       return indices[0];
 
-    if (indices.size() <= (size_t)_K && (!is_root || _n_items <= (size_t)_K || indices.size() == 1)) {
+    if (indices.size() <= (size_t)_K && (!is_root || _n_items <= (size_t)_K || indices.size() == 1)) {	// 如果满足条件，该节点将作为叶节点
       _allocate_size(_n_nodes + 1);
       S item = _n_nodes++;
       Node* m = _get(item);
@@ -773,10 +779,10 @@ protected:
       // Using std::copy instead of a loop seems to resolve issues #3 and #13,
       // probably because gcc 4.8 goes overboard with optimizations.
       // Using memcpy instead of std::copy for MSVC compatibility. #235
-      memcpy(m->children, &indices[0], indices.size() * sizeof(S));
+      memcpy(m->children, &indices[0], indices.size() * sizeof(S));	// 将所有点的索引作为当前叶节点的children
       return item;
     }
-
+		// 将所有节点指针加入children vector，用于之后切分空间（传入create_split函数）
     vector<Node*> children;
     for (size_t i = 0; i < indices.size(); i++) {
       S j = indices[i];
@@ -786,9 +792,9 @@ protected:
     }
 
     vector<S> children_indices[2];
-    Node* m = (Node*)malloc(_s); // TODO: avoid
-    D::create_split(children, _f, _s, _random, m);
-
+    Node* m = (Node*)malloc(_s); // TODO: avoid此处m是临时变量	
+    D::create_split(children, _f, _s, _random, m);	// 切分空间
+		// 将节点分别划归到左右子树
     for (size_t i = 0; i < indices.size(); i++) {
       S j = indices[i];
       Node* n = _get(j);
@@ -822,14 +828,14 @@ protected:
     m->n_descendants = is_root ? _n_items : (S)indices.size();
     for (int side = 0; side < 2; side++)
       // run _make_tree for the smallest child first (for cache locality)
-      m->children[side^flip] = _make_tree(children_indices[side^flip], false);
+      m->children[side^flip] = _make_tree(children_indices[side^flip], false);	// 递归建树
 
     _allocate_size(_n_nodes + 1);
     S item = _n_nodes++;
     memcpy(_get(item), m, _s);
     free(m);
 
-    return item;
+    return item;	// item用于记录节点的编号（存在children里）
   }
 
   void _get_all_nns(const T* v, size_t n, size_t search_k, vector<S>* result, vector<T>* distances) {
